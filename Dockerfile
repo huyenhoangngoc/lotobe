@@ -15,7 +15,6 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
-ENV ASPNETCORE_URLS=http://0.0.0.0:${PORT:-8080}
 EXPOSE 8080
 
-ENTRYPOINT ["dotnet", "LoTo.WebApi.dll"]
+CMD ["sh", "-c", "dotnet LoTo.WebApi.dll --urls http://0.0.0.0:${PORT:-8080}"]

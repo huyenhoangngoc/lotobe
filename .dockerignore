@@ -1,0 +1,9 @@
+bin/
+obj/
+.git
+.gitignore
+*.md
+.claude/
+_bmad/
+_bmad-output/
+appsettings.Development.json
