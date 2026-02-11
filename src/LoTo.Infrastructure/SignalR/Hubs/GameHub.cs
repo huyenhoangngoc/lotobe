@@ -1,7 +1,9 @@
 using LoTo.Application.Interfaces;
+using LoTo.Domain.Enums;
 using LoTo.Domain.Interfaces;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace LoTo.Infrastructure.SignalR.Hubs;
 
@@ -11,17 +13,26 @@ public class GameHub : Hub
     private readonly IConnectionMapping _connectionMapping;
     private readonly IRoomRepository _roomRepo;
     private readonly IRoomPlayerRepository _playerRepo;
+    private readonly IGameSessionRepository _sessionRepo;
+    private readonly ITicketRepository _ticketRepo;
+    private readonly IDrawnNumberRepository _drawnNumberRepo;
 
     public GameHub(
         ILogger<GameHub> logger,
         IConnectionMapping connectionMapping,
         IRoomRepository roomRepo,
-        IRoomPlayerRepository playerRepo)
+        IRoomPlayerRepository playerRepo,
+        IGameSessionRepository sessionRepo,
+        ITicketRepository ticketRepo,
+        IDrawnNumberRepository drawnNumberRepo)
     {
         _logger = logger;
         _connectionMapping = connectionMapping;
         _roomRepo = roomRepo;
         _playerRepo = playerRepo;
+        _sessionRepo = sessionRepo;
+        _ticketRepo = ticketRepo;
+        _drawnNumberRepo = drawnNumberRepo;
     }
 
     public override async Task OnConnectedAsync()
@@ -40,12 +51,17 @@ public class GameHub : Hub
 
             if (!info.IsHost)
             {
-                // Xóa player khỏi DB khi disconnect
-                await _playerRepo.DeleteAsync(info.PlayerId);
+                // Đánh dấu player mất kết nối (không xóa - cho phép reconnect)
+                var player = await _playerRepo.GetByIdAsync(info.PlayerId);
+                if (player is not null)
+                {
+                    player.ConnectionId = null;
+                    player.IsConnected = false;
+                    await _playerRepo.UpdateAsync(player);
+                }
 
-                var playerCount = await GetRoomPlayerCount(info.RoomCode);
                 await Clients.Group($"Room_{info.RoomCode}")
-                    .SendAsync("PlayerLeft", info.Nickname, playerCount);
+                    .SendAsync("PlayerDisconnected", info.Nickname);
                 _logger.LogInformation("Player {Nickname} disconnected from room {RoomCode}", info.Nickname, info.RoomCode);
             }
             else
@@ -103,6 +119,43 @@ public class GameHub : Hub
 
         var playerCount = await GetRoomPlayerCount(roomCode);
         await Clients.Group(groupName).SendAsync("PlayerJoined", player.Nickname, playerCount);
+
+        // Nếu game đang chơi, gửi lại ticket + drawn numbers cho player reconnect
+        if (room.Status == RoomStatus.Playing)
+        {
+            var session = await _sessionRepo.GetActiveByRoomIdAsync(room.Id);
+            if (session is not null)
+            {
+                var ticket = await _ticketRepo.GetBySessionAndPlayerAsync(session.Id, playerId);
+                if (ticket is not null)
+                {
+                    // Parse grid JSON thành int?[][]
+                    var gridDoc = JsonDocument.Parse(ticket.Grid);
+                    var rowsElement = gridDoc.RootElement.GetProperty("rows");
+                    var rows = new int?[rowsElement.GetArrayLength()][];
+                    for (int i = 0; i < rows.Length; i++)
+                    {
+                        var rowEl = rowsElement[i];
+                        rows[i] = new int?[rowEl.GetArrayLength()];
+                        for (int j = 0; j < rows[i].Length; j++)
+                        {
+                            rows[i][j] = rowEl[j].ValueKind == JsonValueKind.Null ? null : rowEl[j].GetInt32();
+                        }
+                    }
+
+                    var ticketData = new { id = ticket.Id, rows, markedNumbers = ticket.MarkedNumbers };
+                    await Clients.Caller.SendAsync("GameStarted", ticketData, session.Id);
+
+                    // Gửi drawn numbers
+                    var drawnNumbers = await _drawnNumberRepo.GetBySessionIdAsync(session.Id);
+                    var sorted = drawnNumbers.OrderBy(d => d.DrawnOrder).ToList();
+                    foreach (var dn in sorted)
+                    {
+                        await Clients.Caller.SendAsync("NumberDrawn", dn.Number, dn.DrawnOrder);
+                    }
+                }
+            }
+        }
 
         _logger.LogInformation("Player {Nickname} joined room {RoomCode}", player.Nickname, roomCode);
     }
