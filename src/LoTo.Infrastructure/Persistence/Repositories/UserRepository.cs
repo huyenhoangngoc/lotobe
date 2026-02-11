@@ -76,6 +76,8 @@ public class UserRepository : IUserRepository
                 is_premium = @IsPremium,
                 premium_expires_at = @PremiumExpiresAt,
                 is_banned = @IsBanned,
+                terms_accepted_at = @TermsAcceptedAt,
+                terms_version = @TermsVersion,
                 updated_at = now()
             WHERE id = @Id
             """,
@@ -87,6 +89,8 @@ public class UserRepository : IUserRepository
                 user.IsPremium,
                 user.PremiumExpiresAt,
                 user.IsBanned,
+                user.TermsAcceptedAt,
+                user.TermsVersion,
             });
     }
 
@@ -121,6 +125,8 @@ public class UserRepository : IUserRepository
         public bool Is_Premium { get; set; }
         public DateTime? Premium_Expires_At { get; set; }
         public bool Is_Banned { get; set; }
+        public DateTime? Terms_Accepted_At { get; set; }
+        public string? Terms_Version { get; set; }
         public DateTime Created_At { get; set; }
         public DateTime Updated_At { get; set; }
 
@@ -135,6 +141,8 @@ public class UserRepository : IUserRepository
             IsPremium = Is_Premium,
             PremiumExpiresAt = Premium_Expires_At,
             IsBanned = Is_Banned,
+            TermsAcceptedAt = Terms_Accepted_At,
+            TermsVersion = Terms_Version,
             CreatedAt = Created_At,
             UpdatedAt = Updated_At,
         };

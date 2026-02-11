@@ -65,7 +65,10 @@ public class GoogleLoginUseCase
             user.AvatarUrl,
             user.Role.ToString().ToLower(),
             user.IsPremium,
-            user.PremiumExpiresAt
+            user.PremiumExpiresAt,
+            user.IsBanned,
+            user.TermsAcceptedAt,
+            user.TermsVersion
         ));
     }
 }

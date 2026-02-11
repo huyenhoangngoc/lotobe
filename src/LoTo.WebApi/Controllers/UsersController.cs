@@ -43,7 +43,37 @@ public class UsersController : ControllerBase
             user.AvatarUrl,
             user.Role.ToString().ToLower(),
             user.IsPremium,
-            user.PremiumExpiresAt
+            user.PremiumExpiresAt,
+            user.IsBanned,
+            user.TermsAcceptedAt,
+            user.TermsVersion
         ));
+    }
+
+    /// <summary>
+    /// Accept terms of service
+    /// </summary>
+    [HttpPost("me/accept-terms")]
+    [Authorize]
+    [ProducesResponseType(typeof(AcceptTermsResponse), 200)]
+    [ProducesResponseType(401)]
+    public async Task<IActionResult> AcceptTerms([FromBody] AcceptTermsRequest request, CancellationToken ct)
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirstValue("sub");
+
+        if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+
+        var user = await _userRepo.GetByIdAsync(userId, ct);
+        if (user is null)
+            return NotFound(new { error = "NOT_FOUND", message = "User khong ton tai" });
+
+        user.TermsAcceptedAt = DateTime.UtcNow;
+        user.TermsVersion = request.TermsVersion;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _userRepo.UpdateAsync(user, ct);
+
+        return Ok(new AcceptTermsResponse(user.TermsAcceptedAt.Value, user.TermsVersion));
     }
 }

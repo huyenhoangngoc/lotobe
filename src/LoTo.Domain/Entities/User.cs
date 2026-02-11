@@ -13,6 +13,8 @@ public class User
     public bool IsPremium { get; set; }
     public DateTime? PremiumExpiresAt { get; set; }
     public bool IsBanned { get; set; }
+    public DateTime? TermsAcceptedAt { get; set; }
+    public string? TermsVersion { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

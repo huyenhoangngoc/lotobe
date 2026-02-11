@@ -40,14 +40,8 @@ public class GameHub : Hub
 
             if (!info.IsHost)
             {
-                // Update player connection status
-                var player = await _playerRepo.GetByIdAsync(info.PlayerId);
-                if (player is not null)
-                {
-                    player.ConnectionId = null;
-                    player.IsConnected = false;
-                    await _playerRepo.UpdateAsync(player);
-                }
+                // Xóa player khỏi DB khi disconnect
+                await _playerRepo.DeleteAsync(info.PlayerId);
 
                 var playerCount = await GetRoomPlayerCount(info.RoomCode);
                 await Clients.Group($"Room_{info.RoomCode}")
