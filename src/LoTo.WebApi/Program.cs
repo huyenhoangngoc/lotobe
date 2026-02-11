@@ -61,6 +61,7 @@ builder.Services.AddScoped<EndGameUseCase>();
 builder.Services.AddSingleton<IGoogleAuthService, GoogleAuthService>();
 builder.Services.AddSingleton<IJwtService, JwtService>();
 builder.Services.AddSingleton<IConnectionMapping, ConnectionMapping>();
+builder.Services.AddSingleton<IRoomGameSettings, RoomGameSettingsService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRoomRepository, RoomRepository>();
 builder.Services.AddScoped<IRoomPlayerRepository, RoomPlayerRepository>();

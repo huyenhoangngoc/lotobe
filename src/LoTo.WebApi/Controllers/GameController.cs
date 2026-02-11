@@ -23,6 +23,7 @@ public class GameController : ControllerBase
     private readonly IDrawnNumberRepository _drawnNumberRepo;
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IConnectionMapping _connectionMapping;
+    private readonly IRoomGameSettings _gameSettings;
     private readonly ILogger<GameController> _logger;
 
     public GameController(
@@ -35,6 +36,7 @@ public class GameController : ControllerBase
         IDrawnNumberRepository drawnNumberRepo,
         IHubContext<GameHub> hubContext,
         IConnectionMapping connectionMapping,
+        IRoomGameSettings gameSettings,
         ILogger<GameController> logger)
     {
         _startGameUseCase = startGameUseCase;
@@ -46,6 +48,7 @@ public class GameController : ControllerBase
         _drawnNumberRepo = drawnNumberRepo;
         _hubContext = hubContext;
         _connectionMapping = connectionMapping;
+        _gameSettings = gameSettings;
         _logger = logger;
     }
 
@@ -208,6 +211,8 @@ public class GameController : ControllerBase
         {
             var result = await _endGameUseCase.ExecuteAsync(userId, roomCode, ct);
 
+            _gameSettings.Remove(roomCode);
+
             await _hubContext.Clients.Group($"Room_{roomCode}")
                 .SendAsync("GameEnded", result.WinnerNickname, result.TotalNumbersDrawn, ct);
 
@@ -234,6 +239,53 @@ public class GameController : ControllerBase
     }
 
     /// <summary>
+    /// Cap nhat room settings (Host only)
+    /// </summary>
+    [HttpPut("settings")]
+    [Authorize]
+    [ProducesResponseType(typeof(RoomSettingsResponse), 200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> UpdateSettings(string roomCode, [FromBody] UpdateRoomSettingsRequest request, CancellationToken ct)
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirstValue("sub");
+        if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+
+        var room = await _roomRepo.GetByCodeAsync(roomCode, ct);
+        if (room is null)
+            return NotFound(new { error = "ROOM_NOT_FOUND", message = "Phong khong ton tai" });
+
+        if (room.HostId != userId)
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "Khong co quyen" });
+
+        var current = _gameSettings.Get(roomCode);
+        var updated = current with
+        {
+            HideDrawnNumbers = request.HideDrawnNumbers ?? current.HideDrawnNumbers
+        };
+        _gameSettings.Update(roomCode, updated);
+
+        // Broadcast setting change to all players
+        await _hubContext.Clients.Group($"Room_{roomCode}")
+            .SendAsync("RoomSettingsChanged", updated.HideDrawnNumbers, ct);
+
+        return Ok(new RoomSettingsResponse(updated.HideDrawnNumbers));
+    }
+
+    /// <summary>
+    /// Lay room settings hien tai
+    /// </summary>
+    [HttpGet("settings")]
+    [ProducesResponseType(typeof(RoomSettingsResponse), 200)]
+    public IActionResult GetSettings(string roomCode)
+    {
+        var settings = _gameSettings.Get(roomCode);
+        return Ok(new RoomSettingsResponse(settings.HideDrawnNumbers));
+    }
+
+    /// <summary>
     /// Lay trang thai game hien tai (Host only) - dung khi host reconnect
     /// </summary>
     [HttpGet("state")]
@@ -256,13 +308,14 @@ public class GameController : ControllerBase
             return Unauthorized(new { error = "UNAUTHORIZED", message = "Khong co quyen" });
 
         var status = room.Status.ToString().ToLower();
+        var settings = _gameSettings.Get(roomCode);
 
         if (room.Status != Domain.Enums.RoomStatus.Playing)
-            return Ok(new GameStateResponse(status, null, 0, null, []));
+            return Ok(new GameStateResponse(status, null, 0, null, [], settings.HideDrawnNumbers));
 
         var session = await _sessionRepo.GetActiveByRoomIdAsync(room.Id, ct);
         if (session is null)
-            return Ok(new GameStateResponse(status, null, 0, null, []));
+            return Ok(new GameStateResponse(status, null, 0, null, [], settings.HideDrawnNumbers));
 
         var drawnNumbers = await _drawnNumberRepo.GetBySessionIdAsync(session.Id, ct);
         var numbers = drawnNumbers.OrderBy(d => d.DrawnOrder).Select(d => d.Number).ToList();
@@ -273,7 +326,8 @@ public class GameController : ControllerBase
             session.Id,
             drawnNumbers.Count,
             lastNumber?.Number,
-            numbers
+            numbers,
+            settings.HideDrawnNumbers
         ));
     }
 }

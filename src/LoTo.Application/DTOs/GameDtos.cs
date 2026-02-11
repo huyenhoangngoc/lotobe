@@ -24,5 +24,10 @@ public record GameStateResponse(
     Guid? GameSessionId,
     int DrawOrder,
     int? CurrentNumber,
-    List<int> DrawnNumbers
+    List<int> DrawnNumbers,
+    bool HideDrawnNumbers = false
 );
+
+public record UpdateRoomSettingsRequest(bool? HideDrawnNumbers);
+
+public record RoomSettingsResponse(bool HideDrawnNumbers);
