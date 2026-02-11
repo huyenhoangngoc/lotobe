@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LoTo.Application/LoTo.Application.csproj" />
+    <Project Path="src/LoTo.Domain/LoTo.Domain.csproj" />
+    <Project Path="src/LoTo.Infrastructure/LoTo.Infrastructure.csproj" />
+    <Project Path="src/LoTo.WebApi/LoTo.WebApi.csproj" />
+  </Folder>
+</Solution>
