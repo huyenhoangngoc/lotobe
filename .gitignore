@@ -24,3 +24,10 @@ Thumbs.db
 
 ## Environment
 appsettings.Development.json
+
+## AI / Agent
+.claude/
+.mcp.json
+CLAUDE.md
+_bmad/
+_bmad-output/
