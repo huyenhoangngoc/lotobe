@@ -14,22 +14,25 @@ public class AdminController : ControllerBase
     private readonly IUserRepository _userRepo;
     private readonly ITransactionRepository _transactionRepo;
     private readonly ISystemSettingRepository _settingRepo;
+    private readonly IRoomRepository _roomRepo;
 
     public AdminController(
         IUserRepository userRepo,
         ITransactionRepository transactionRepo,
-        ISystemSettingRepository settingRepo)
+        ISystemSettingRepository settingRepo,
+        IRoomRepository roomRepo)
     {
         _userRepo = userRepo;
         _transactionRepo = transactionRepo;
         _settingRepo = settingRepo;
+        _roomRepo = roomRepo;
     }
 
     /// <summary>
     /// Danh sach users (Admin only)
     /// </summary>
     [HttpGet("users")]
-    [ProducesResponseType(typeof(PagedResult<UserDto>), 200)]
+    [ProducesResponseType(typeof(PagedResult<AdminUserDto>), 200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(403)]
     public async Task<IActionResult> GetUsers(
@@ -42,19 +45,27 @@ public class AdminController : ControllerBase
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
         var (items, totalCount) = await _userRepo.GetAllAsync(page, pageSize, search, ct);
+        var hostIds = items.Select(u => u.Id);
+        var roomStats = await _roomRepo.GetRoomStatsByHostIdsAsync(hostIds, ct);
 
-        var dtos = items.Select(u => new UserDto(
-            u.Id,
-            u.DisplayName,
-            u.Email ?? "",
-            u.AvatarUrl,
-            u.Role.ToString().ToLower(),
-            u.IsPremium,
-            u.PremiumExpiresAt,
-            u.IsBanned
-        )).ToList();
+        var dtos = items.Select(u =>
+        {
+            roomStats.TryGetValue(u.Id, out var stats);
+            return new AdminUserDto(
+                u.Id,
+                u.DisplayName,
+                u.Email ?? "",
+                u.AvatarUrl,
+                u.Role.ToString().ToLower(),
+                u.IsPremium,
+                u.PremiumExpiresAt,
+                u.IsBanned,
+                stats.TotalRooms,
+                stats.HasActiveRoom
+            );
+        }).ToList();
 
-        return Ok(new PagedResult<UserDto>(dtos, totalCount, page, pageSize));
+        return Ok(new PagedResult<AdminUserDto>(dtos, totalCount, page, pageSize));
     }
 
     /// <summary>
@@ -168,3 +179,7 @@ public record TransactionDto(Guid Id, Guid UserId, string SessionId, long Amount
 public record RevenueResponse(long TotalRevenue, int TotalTransactions, List<TransactionDto> Items, int Page, int PageSize);
 public record GlobalPremiumResponse(bool Enabled);
 public record SetGlobalPremiumRequest(bool Enabled);
+public record AdminUserDto(
+    Guid Id, string DisplayName, string Email, string? AvatarUrl,
+    string Role, bool IsPremium, DateTime? PremiumExpiresAt, bool IsBanned,
+    int TotalRoomsCreated, bool HasActiveRoom);

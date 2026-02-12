@@ -83,6 +83,32 @@ public class RoomRepository : IRoomRepository
         return rows.Select(r => r.ToEntity()).ToList();
     }
 
+    public async Task<Dictionary<Guid, (int TotalRooms, bool HasActiveRoom)>> GetRoomStatsByHostIdsAsync(
+        IEnumerable<Guid> hostIds, CancellationToken ct = default)
+    {
+        var ids = hostIds.ToArray();
+        if (ids.Length == 0) return new();
+
+        await using var conn = CreateConnection();
+        var rows = await conn.QueryAsync<RoomStatsRow>("""
+            SELECT host_id,
+                COUNT(*) AS total_rooms,
+                COUNT(*) FILTER (WHERE status != 'finished') AS active_rooms
+            FROM rooms
+            WHERE host_id = ANY(@HostIds)
+            GROUP BY host_id
+            """, new { HostIds = ids });
+
+        return rows.ToDictionary(r => r.Host_Id, r => (r.Total_Rooms, r.Active_Rooms > 0));
+    }
+
+    private class RoomStatsRow
+    {
+        public Guid Host_Id { get; set; }
+        public int Total_Rooms { get; set; }
+        public int Active_Rooms { get; set; }
+    }
+
     private class RoomRow
     {
         public Guid Id { get; set; }
