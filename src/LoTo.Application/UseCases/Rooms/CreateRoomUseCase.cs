@@ -1,4 +1,5 @@
 using LoTo.Application.DTOs;
+using LoTo.Application.Interfaces;
 using LoTo.Domain.Entities;
 using LoTo.Domain.Enums;
 using LoTo.Domain.Interfaces;
@@ -10,15 +11,18 @@ public class CreateRoomUseCase
 {
     private readonly IRoomRepository _roomRepo;
     private readonly IUserRepository _userRepo;
+    private readonly IPremiumService _premiumService;
     private readonly ILogger<CreateRoomUseCase> _logger;
 
     public CreateRoomUseCase(
         IRoomRepository roomRepo,
         IUserRepository userRepo,
+        IPremiumService premiumService,
         ILogger<CreateRoomUseCase> logger)
     {
         _roomRepo = roomRepo;
         _userRepo = userRepo;
+        _premiumService = premiumService;
         _logger = logger;
     }
 
@@ -45,7 +49,8 @@ public class CreateRoomUseCase
             );
         }
 
-        var maxPlayers = user.IsPremium ? 60 : 5;
+        var isPremium = await _premiumService.IsUserPremiumAsync(hostId, ct);
+        var maxPlayers = isPremium ? 60 : 5;
         var roomCode = await GenerateUniqueCodeAsync(ct);
 
         var room = new Room

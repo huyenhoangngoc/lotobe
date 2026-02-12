@@ -2,10 +2,10 @@ namespace LoTo.Domain.Interfaces;
 
 public interface IPaymentService
 {
-    Task<PaymentResult> CreatePaymentAsync(Guid userId, string planType, CancellationToken ct = default);
-    Task<bool> VerifyCallbackAsync(string signature, string rawBody, CancellationToken ct = default);
-    Task<QueryPaymentResult> QueryPaymentAsync(string orderId, CancellationToken ct = default);
+    Task<PaymentResult> CreateCheckoutSessionAsync(Guid userId, string planType, CancellationToken ct = default);
+    Task<bool> HandleWebhookAsync(string payload, string signature, CancellationToken ct = default);
+    Task<QueryPaymentResult> QuerySessionAsync(string sessionId, CancellationToken ct = default);
 }
 
-public record PaymentResult(string OrderId, string PayUrl, string? QrCodeUrl, long Amount, DateTime ExpireAt);
-public record QueryPaymentResult(int ResultCode, string Message, string? TransId);
+public record PaymentResult(string SessionId, string CheckoutUrl, long Amount, DateTime ExpireAt);
+public record QueryPaymentResult(bool IsCompleted, string? PaymentIntentId, string? ErrorMessage);

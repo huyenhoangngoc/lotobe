@@ -27,11 +27,11 @@ public class TransactionRepository : ITransactionRepository
         return row?.ToEntity();
     }
 
-    public async Task<Transaction?> GetByMomoOrderIdAsync(string momoOrderId, CancellationToken ct = default)
+    public async Task<Transaction?> GetByStripeSessionIdAsync(string sessionId, CancellationToken ct = default)
     {
         await using var conn = CreateConnection();
         var row = await conn.QueryFirstOrDefaultAsync<TransactionRow>(
-            "SELECT * FROM transactions WHERE momo_order_id = @MomoOrderId", new { MomoOrderId = momoOrderId });
+            "SELECT * FROM transactions WHERE stripe_session_id = @SessionId", new { SessionId = sessionId });
         return row?.ToEntity();
     }
 
@@ -39,14 +39,14 @@ public class TransactionRepository : ITransactionRepository
     {
         await using var conn = CreateConnection();
         var id = await conn.QuerySingleAsync<Guid>("""
-            INSERT INTO transactions (user_id, momo_order_id, amount, plan_type, status)
-            VALUES (@UserId, @MomoOrderId, @Amount, @PlanType, @Status)
+            INSERT INTO transactions (user_id, stripe_session_id, amount, plan_type, status)
+            VALUES (@UserId, @StripeSessionId, @Amount, @PlanType, @Status)
             RETURNING id
             """,
             new
             {
                 transaction.UserId,
-                transaction.MomoOrderId,
+                transaction.StripeSessionId,
                 transaction.Amount,
                 transaction.PlanType,
                 Status = transaction.Status.ToString().ToLower(),
@@ -60,18 +60,18 @@ public class TransactionRepository : ITransactionRepository
         await using var conn = CreateConnection();
         await conn.ExecuteAsync("""
             UPDATE transactions SET
-                momo_trans_id = @MomoTransId,
+                stripe_payment_intent_id = @StripePaymentIntentId,
                 status = @Status,
-                momo_response = @MomoResponse::jsonb,
+                stripe_response = @StripeResponse::jsonb,
                 completed_at = @CompletedAt
             WHERE id = @Id
             """,
             new
             {
                 transaction.Id,
-                transaction.MomoTransId,
+                transaction.StripePaymentIntentId,
                 Status = transaction.Status.ToString().ToLower(),
-                transaction.MomoResponse,
+                transaction.StripeResponse,
                 transaction.CompletedAt,
             });
     }
@@ -100,12 +100,12 @@ public class TransactionRepository : ITransactionRepository
     {
         public Guid Id { get; set; }
         public Guid User_Id { get; set; }
-        public string? Momo_Order_Id { get; set; }
-        public string? Momo_Trans_Id { get; set; }
+        public string? Stripe_Session_Id { get; set; }
+        public string? Stripe_Payment_Intent_Id { get; set; }
         public long Amount { get; set; }
-        public string Plan_Type { get; set; } = "monthly";
+        public string Plan_Type { get; set; } = "yearly";
         public string Status { get; set; } = "pending";
-        public string? Momo_Response { get; set; }
+        public string? Stripe_Response { get; set; }
         public DateTime Created_At { get; set; }
         public DateTime? Completed_At { get; set; }
 
@@ -113,12 +113,12 @@ public class TransactionRepository : ITransactionRepository
         {
             Id = Id,
             UserId = User_Id,
-            MomoOrderId = Momo_Order_Id,
-            MomoTransId = Momo_Trans_Id,
+            StripeSessionId = Stripe_Session_Id,
+            StripePaymentIntentId = Stripe_Payment_Intent_Id,
             Amount = Amount,
             PlanType = Plan_Type,
             Status = Enum.Parse<TransactionStatus>(Status, ignoreCase: true),
-            MomoResponse = Momo_Response,
+            StripeResponse = Stripe_Response,
             CreatedAt = Created_At,
             CompletedAt = Completed_At,
         };

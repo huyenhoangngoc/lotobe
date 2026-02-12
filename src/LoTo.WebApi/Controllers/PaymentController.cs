@@ -1,6 +1,4 @@
 using System.Security.Claims;
-using System.Text;
-using System.Text.Json;
 using LoTo.Domain.Entities;
 using LoTo.Domain.Enums;
 using LoTo.Domain.Interfaces;
@@ -16,22 +14,37 @@ public class PaymentController : ControllerBase
     private readonly IPaymentService _paymentService;
     private readonly ITransactionRepository _transactionRepo;
     private readonly IUserRepository _userRepo;
+    private readonly ISystemSettingRepository _settingRepo;
     private readonly ILogger<PaymentController> _logger;
 
     public PaymentController(
         IPaymentService paymentService,
         ITransactionRepository transactionRepo,
         IUserRepository userRepo,
+        ISystemSettingRepository settingRepo,
         ILogger<PaymentController> logger)
     {
         _paymentService = paymentService;
         _transactionRepo = transactionRepo;
         _userRepo = userRepo;
+        _settingRepo = settingRepo;
         _logger = logger;
     }
 
     /// <summary>
-    /// Tạo MoMo payment
+    /// Check global premium status (public)
+    /// </summary>
+    [HttpGet("premium-status")]
+    [ProducesResponseType(typeof(PremiumStatusResponse), 200)]
+    public async Task<IActionResult> GetPremiumStatus(CancellationToken ct)
+    {
+        var setting = await _settingRepo.GetByKeyAsync("global_premium_enabled", ct);
+        var enabled = setting?.Value == "true";
+        return Ok(new PremiumStatusResponse(enabled));
+    }
+
+    /// <summary>
+    /// Tao Stripe Checkout Session
     /// </summary>
     [HttpPost("create")]
     [Authorize]
@@ -49,13 +62,13 @@ public class PaymentController : ControllerBase
 
         try
         {
-            var result = await _paymentService.CreatePaymentAsync(userId, request.PlanType, ct);
+            var result = await _paymentService.CreateCheckoutSessionAsync(userId, request.PlanType, ct);
 
-            // Lưu transaction
+            // Luu transaction
             var transaction = new Transaction
             {
                 UserId = userId,
-                MomoOrderId = result.OrderId,
+                StripeSessionId = result.SessionId,
                 Amount = result.Amount,
                 PlanType = request.PlanType,
                 Status = TransactionStatus.Pending,
@@ -63,149 +76,85 @@ public class PaymentController : ControllerBase
             await _transactionRepo.CreateAsync(transaction, ct);
 
             return Ok(new CreatePaymentResponse(
-                result.OrderId, result.PayUrl, result.QrCodeUrl, result.Amount, result.ExpireAt));
+                result.SessionId, result.CheckoutUrl, result.Amount, result.ExpireAt));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create MoMo payment for user {UserId}", userId);
+            _logger.LogError(ex, "Failed to create Stripe checkout session for user {UserId}", userId);
             return BadRequest(new { error = "PAYMENT_FAILED", message = ex.Message });
         }
     }
 
     /// <summary>
-    /// MoMo IPN callback (server-to-server)
+    /// Stripe webhook (server-to-server)
     /// </summary>
-    [HttpPost("momo-ipn")]
-    [ProducesResponseType(204)]
-    public async Task<IActionResult> MoMoIpn(CancellationToken ct)
+    [HttpPost("stripe-webhook")]
+    [ProducesResponseType(200)]
+    public async Task<IActionResult> StripeWebhook(CancellationToken ct)
     {
-        using var reader = new StreamReader(Request.Body, Encoding.UTF8);
-        var body = await reader.ReadToEndAsync(ct);
+        var payload = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync(ct);
+        var signature = Request.Headers["Stripe-Signature"].FirstOrDefault() ?? "";
 
-        _logger.LogInformation("MoMo IPN received: {Body}", body);
+        _logger.LogInformation("Stripe webhook received");
 
-        try
+        var success = await _paymentService.HandleWebhookAsync(payload, signature, ct);
+        if (!success)
         {
-            var data = JsonSerializer.Deserialize<JsonElement>(body);
-            var orderId = data.GetProperty("orderId").GetString()!;
-            var resultCode = data.GetProperty("resultCode").GetInt32();
-            var signature = data.GetProperty("signature").GetString()!;
-            var transId = data.TryGetProperty("transId", out var tid) ? tid.GetString() : null;
-
-            // Verify signature
-            var accessKey = data.TryGetProperty("accessKey", out var ak) ? ak.GetString() ?? "" : "";
-            var amount = data.GetProperty("amount").GetInt64();
-            var extraData = data.TryGetProperty("extraData", out var ed) ? ed.GetString() ?? "" : "";
-            var message = data.GetProperty("message").GetString() ?? "";
-            var orderInfo = data.TryGetProperty("orderInfo", out var oi) ? oi.GetString() ?? "" : "";
-            var orderType = data.TryGetProperty("orderType", out var ot) ? ot.GetString() ?? "" : "";
-            var partnerCode = data.GetProperty("partnerCode").GetString() ?? "";
-            var requestId = data.GetProperty("requestId").GetString() ?? "";
-            var responseTime = data.TryGetProperty("responseTime", out var rt) ? rt.GetInt64().ToString() : "";
-
-            var rawSignature = $"accessKey={accessKey}&amount={amount}&extraData={extraData}" +
-                $"&message={message}&orderId={orderId}&orderInfo={orderInfo}" +
-                $"&orderType={orderType}&partnerCode={partnerCode}&payType=&requestId={requestId}" +
-                $"&responseTime={responseTime}&resultCode={resultCode}&transId={transId}";
-
-            var verified = await _paymentService.VerifyCallbackAsync(signature, rawSignature, ct);
-            if (!verified)
-            {
-                _logger.LogWarning("MoMo IPN signature verification failed for order {OrderId}", orderId);
-                return NoContent();
-            }
-
-            // Tìm transaction
-            var transaction = await _transactionRepo.GetByMomoOrderIdAsync(orderId, ct);
-            if (transaction is null)
-            {
-                _logger.LogWarning("MoMo IPN: transaction not found for order {OrderId}", orderId);
-                return NoContent();
-            }
-
-            if (resultCode == 0)
-            {
-                // Thanh toán thành công
-                transaction.Status = TransactionStatus.Completed;
-                transaction.MomoTransId = transId;
-                transaction.MomoResponse = body;
-                transaction.CompletedAt = DateTime.UtcNow;
-                await _transactionRepo.UpdateAsync(transaction, ct);
-
-                // Upgrade premium
-                var user = await _userRepo.GetByIdAsync(transaction.UserId, ct);
-                if (user is not null)
-                {
-                    user.IsPremium = true;
-                    user.PremiumExpiresAt = DateTime.UtcNow.AddYears(1);
-                    await _userRepo.UpdateAsync(user, ct);
-                    _logger.LogInformation("User {UserId} upgraded to premium (yearly)", user.Id);
-                }
-            }
-            else
-            {
-                transaction.Status = TransactionStatus.Failed;
-                transaction.MomoResponse = body;
-                await _transactionRepo.UpdateAsync(transaction, ct);
-                _logger.LogInformation("MoMo payment failed for order {OrderId}, code: {Code}", orderId, resultCode);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing MoMo IPN");
+            _logger.LogWarning("Stripe webhook handling failed");
+            return BadRequest();
         }
 
-        return NoContent();
+        return Ok();
     }
 
     /// <summary>
-    /// Check trạng thái payment
+    /// Check trang thai payment
     /// </summary>
-    [HttpGet("status/{orderId}")]
+    [HttpGet("status/{sessionId}")]
     [Authorize]
     [ProducesResponseType(typeof(PaymentStatusResponse), 200)]
     [ProducesResponseType(404)]
-    public async Task<IActionResult> GetPaymentStatus(string orderId, CancellationToken ct)
+    public async Task<IActionResult> GetPaymentStatus(string sessionId, CancellationToken ct)
     {
-        var transaction = await _transactionRepo.GetByMomoOrderIdAsync(orderId, ct);
+        var transaction = await _transactionRepo.GetByStripeSessionIdAsync(sessionId, ct);
         if (transaction is null)
             return NotFound(new { error = "NOT_FOUND" });
 
         return Ok(new PaymentStatusResponse(
-            transaction.MomoOrderId ?? "",
+            transaction.StripeSessionId ?? "",
             transaction.Status.ToString().ToLower(),
             transaction.Amount,
             transaction.PlanType));
     }
 
     /// <summary>
-    /// Verify payment qua MoMo Query API - dùng khi IPN không đến được (localhost)
+    /// Verify payment qua Stripe API
     /// </summary>
-    [HttpPost("verify/{orderId}")]
+    [HttpPost("verify/{sessionId}")]
     [Authorize]
     [ProducesResponseType(typeof(PaymentStatusResponse), 200)]
     [ProducesResponseType(404)]
     [ProducesResponseType(400)]
-    public async Task<IActionResult> VerifyPayment(string orderId, CancellationToken ct)
+    public async Task<IActionResult> VerifyPayment(string sessionId, CancellationToken ct)
     {
-        var transaction = await _transactionRepo.GetByMomoOrderIdAsync(orderId, ct);
+        var transaction = await _transactionRepo.GetByStripeSessionIdAsync(sessionId, ct);
         if (transaction is null)
             return NotFound(new { error = "NOT_FOUND" });
 
-        // Đã xử lý rồi
+        // Da xu ly roi
         if (transaction.Status == TransactionStatus.Completed)
-            return Ok(new PaymentStatusResponse(orderId, "completed", transaction.Amount, transaction.PlanType));
+            return Ok(new PaymentStatusResponse(sessionId, "completed", transaction.Amount, transaction.PlanType));
 
-        // Gọi MoMo Query API
+        // Goi Stripe API
         try
         {
-            var result = await _paymentService.QueryPaymentAsync(orderId, ct);
+            var result = await _paymentService.QuerySessionAsync(sessionId, ct);
 
-            if (result.ResultCode == 0)
+            if (result.IsCompleted)
             {
-                // Thanh toán thành công - upgrade premium
+                // Thanh toan thanh cong - upgrade premium
                 transaction.Status = TransactionStatus.Completed;
-                transaction.MomoTransId = result.TransId;
+                transaction.StripePaymentIntentId = result.PaymentIntentId;
                 transaction.CompletedAt = DateTime.UtcNow;
                 await _transactionRepo.UpdateAsync(transaction, ct);
 
@@ -213,35 +162,26 @@ public class PaymentController : ControllerBase
                 if (user is not null)
                 {
                     user.IsPremium = true;
-                    user.PremiumExpiresAt = transaction.PlanType == "yearly"
-                        ? DateTime.UtcNow.AddYears(1)
-                        : DateTime.UtcNow.AddMonths(1);
+                    user.PremiumExpiresAt = DateTime.UtcNow.AddYears(1);
                     await _userRepo.UpdateAsync(user, ct);
-                    _logger.LogInformation("User {UserId} upgraded to premium via verify ({Plan})", user.Id, transaction.PlanType);
+                    _logger.LogInformation("User {UserId} upgraded to premium via verify", user.Id);
                 }
 
-                return Ok(new PaymentStatusResponse(orderId, "completed", transaction.Amount, transaction.PlanType));
+                return Ok(new PaymentStatusResponse(sessionId, "completed", transaction.Amount, transaction.PlanType));
             }
 
-            if (result.ResultCode == 1000)
-            {
-                // Đang chờ thanh toán
-                return Ok(new PaymentStatusResponse(orderId, "pending", transaction.Amount, transaction.PlanType));
-            }
-
-            // Thất bại
-            transaction.Status = TransactionStatus.Failed;
-            await _transactionRepo.UpdateAsync(transaction, ct);
-            return Ok(new PaymentStatusResponse(orderId, "failed", transaction.Amount, transaction.PlanType));
+            // Chua thanh toan
+            return Ok(new PaymentStatusResponse(sessionId, "pending", transaction.Amount, transaction.PlanType));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to verify payment {OrderId}", orderId);
+            _logger.LogError(ex, "Failed to verify payment {SessionId}", sessionId);
             return BadRequest(new { error = "VERIFY_FAILED", message = ex.Message });
         }
     }
 }
 
 public record CreatePaymentRequest(string PlanType);
-public record CreatePaymentResponse(string OrderId, string PayUrl, string? QrCodeUrl, long Amount, DateTime ExpireAt);
-public record PaymentStatusResponse(string OrderId, string Status, long Amount, string PlanType);
+public record CreatePaymentResponse(string SessionId, string CheckoutUrl, long Amount, DateTime ExpireAt);
+public record PaymentStatusResponse(string SessionId, string Status, long Amount, string PlanType);
+public record PremiumStatusResponse(bool GlobalPremiumEnabled);

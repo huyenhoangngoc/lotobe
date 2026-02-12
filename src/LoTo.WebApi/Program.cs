@@ -70,8 +70,12 @@ builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<IDrawnNumberRepository, DrawnNumberRepository>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 
-// MoMo Payment
-builder.Services.AddHttpClient<IPaymentService, MoMoPaymentService>();
+// Stripe Payment
+builder.Services.AddScoped<IPaymentService, StripePaymentService>();
+
+// Premium service
+builder.Services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
+builder.Services.AddScoped<IPremiumService, PremiumService>();
 
 // Health checks
 var connectionString = builder.Configuration.GetConnectionString("Supabase");
