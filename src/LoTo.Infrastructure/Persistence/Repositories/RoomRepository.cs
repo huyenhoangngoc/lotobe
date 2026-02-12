@@ -62,7 +62,8 @@ public class RoomRepository : IRoomRepository
             UPDATE rooms SET
                 status = @Status,
                 max_players = @MaxPlayers,
-                closed_at = @ClosedAt
+                closed_at = @ClosedAt,
+                last_activity_at = NOW()
             WHERE id = @Id
             """,
             new
@@ -72,6 +73,14 @@ public class RoomRepository : IRoomRepository
                 room.MaxPlayers,
                 room.ClosedAt,
             });
+    }
+
+    public async Task TouchActivityAsync(Guid roomId, CancellationToken ct = default)
+    {
+        await using var conn = CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE rooms SET last_activity_at = NOW() WHERE id = @Id",
+            new { Id = roomId });
     }
 
     public async Task<List<Room>> GetActiveByHostIdAsync(Guid hostId, CancellationToken ct = default)
@@ -93,7 +102,7 @@ public class RoomRepository : IRoomRepository
         var rows = await conn.QueryAsync<RoomStatsRow>("""
             SELECT host_id,
                 COUNT(*) AS total_rooms,
-                COUNT(*) FILTER (WHERE status != 'finished') AS active_rooms
+                COUNT(*) FILTER (WHERE status = 'playing' AND last_activity_at > NOW() - INTERVAL '2 hours') AS active_rooms
             FROM rooms
             WHERE host_id = ANY(@HostIds)
             GROUP BY host_id
@@ -118,6 +127,7 @@ public class RoomRepository : IRoomRepository
         public int Max_Players { get; set; }
         public DateTime Created_At { get; set; }
         public DateTime? Closed_At { get; set; }
+        public DateTime Last_Activity_At { get; set; }
 
         public Room ToEntity() => new()
         {
@@ -128,6 +138,7 @@ public class RoomRepository : IRoomRepository
             MaxPlayers = Max_Players,
             CreatedAt = Created_At,
             ClosedAt = Closed_At,
+            LastActivityAt = Last_Activity_At,
         };
     }
 }

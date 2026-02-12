@@ -69,6 +69,9 @@ public class DrawNumberUseCase
         session.TotalNumbersDrawn = drawOrder;
         await _sessionRepo.UpdateAsync(session, ct);
 
+        // Update room activity timestamp
+        await _roomRepo.TouchActivityAsync(room.Id, ct);
+
         var allDrawn = drawnNumbers.Select(d => d.Number).Append(number).OrderBy(n => n).ToList();
 
         _logger.LogInformation("Drew number {Number} (#{Order}/90) in room {RoomCode}",

@@ -11,6 +11,7 @@ public class Room
     public int MaxPlayers { get; set; } = 5;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ClosedAt { get; set; }
+    public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
 
     // Navigation
     public User? Host { get; set; }

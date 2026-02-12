@@ -11,4 +11,5 @@ public interface IRoomRepository
     Task<List<Room>> GetActiveByHostIdAsync(Guid hostId, CancellationToken ct = default);
     Task<Dictionary<Guid, (int TotalRooms, bool HasActiveRoom)>> GetRoomStatsByHostIdsAsync(
         IEnumerable<Guid> hostIds, CancellationToken ct = default);
+    Task TouchActivityAsync(Guid roomId, CancellationToken ct = default);
 }
