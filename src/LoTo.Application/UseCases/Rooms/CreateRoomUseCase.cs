@@ -10,18 +10,15 @@ public class CreateRoomUseCase
 {
     private readonly IRoomRepository _roomRepo;
     private readonly IUserRepository _userRepo;
-    private readonly IAppSettingsRepository _settingsRepo;
     private readonly ILogger<CreateRoomUseCase> _logger;
 
     public CreateRoomUseCase(
         IRoomRepository roomRepo,
         IUserRepository userRepo,
-        IAppSettingsRepository settingsRepo,
         ILogger<CreateRoomUseCase> logger)
     {
         _roomRepo = roomRepo;
         _userRepo = userRepo;
-        _settingsRepo = settingsRepo;
         _logger = logger;
     }
 
@@ -48,8 +45,7 @@ public class CreateRoomUseCase
             );
         }
 
-        var globalPremium = await _settingsRepo.IsGlobalPremiumEnabledAsync(ct);
-        var maxPlayers = (user.IsPremium || globalPremium) ? 60 : 5;
+        var maxPlayers = user.IsPremium ? 60 : 5;
         var roomCode = await GenerateUniqueCodeAsync(ct);
 
         var room = new Room

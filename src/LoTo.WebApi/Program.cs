@@ -69,7 +69,6 @@ builder.Services.AddScoped<IGameSessionRepository, GameSessionRepository>();
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<IDrawnNumberRepository, DrawnNumberRepository>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
-builder.Services.AddScoped<IAppSettingsRepository, AppSettingsRepository>();
 
 // MoMo Payment
 builder.Services.AddHttpClient<IPaymentService, MoMoPaymentService>();

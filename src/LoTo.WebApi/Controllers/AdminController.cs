@@ -13,13 +13,11 @@ public class AdminController : ControllerBase
 {
     private readonly IUserRepository _userRepo;
     private readonly ITransactionRepository _transactionRepo;
-    private readonly IAppSettingsRepository _settingsRepo;
 
-    public AdminController(IUserRepository userRepo, ITransactionRepository transactionRepo, IAppSettingsRepository settingsRepo)
+    public AdminController(IUserRepository userRepo, ITransactionRepository transactionRepo)
     {
         _userRepo = userRepo;
         _transactionRepo = transactionRepo;
-        _settingsRepo = settingsRepo;
     }
 
     /// <summary>
@@ -128,36 +126,8 @@ public class AdminController : ControllerBase
 
         return Ok(new RevenueResponse(totalRevenue, totalCount, dtos, page, pageSize));
     }
-
-    /// <summary>
-    /// Lấy app settings (Admin only)
-    /// </summary>
-    [HttpGet("settings")]
-    [ProducesResponseType(typeof(AppSettingsResponse), 200)]
-    [ProducesResponseType(401)]
-    [ProducesResponseType(403)]
-    public async Task<IActionResult> GetSettings(CancellationToken ct)
-    {
-        var globalPremium = await _settingsRepo.IsGlobalPremiumEnabledAsync(ct);
-        return Ok(new AppSettingsResponse(globalPremium));
-    }
-
-    /// <summary>
-    /// Cập nhật app settings (Admin only)
-    /// </summary>
-    [HttpPut("settings")]
-    [ProducesResponseType(typeof(AppSettingsResponse), 200)]
-    [ProducesResponseType(401)]
-    [ProducesResponseType(403)]
-    public async Task<IActionResult> UpdateSettings([FromBody] UpdateSettingsRequest request, CancellationToken ct)
-    {
-        await _settingsRepo.SetGlobalPremiumEnabledAsync(request.GlobalPremiumEnabled, ct);
-        return Ok(new AppSettingsResponse(request.GlobalPremiumEnabled));
-    }
 }
 
 public record PagedResult<T>(List<T> Items, int TotalCount, int Page, int PageSize);
 public record TransactionDto(Guid Id, Guid UserId, string OrderId, long Amount, string PlanType, string Status, DateTime CreatedAt, DateTime? CompletedAt);
 public record RevenueResponse(long TotalRevenue, int TotalTransactions, List<TransactionDto> Items, int Page, int PageSize);
-public record AppSettingsResponse(bool GlobalPremiumEnabled);
-public record UpdateSettingsRequest(bool GlobalPremiumEnabled);
